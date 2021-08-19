@@ -529,7 +529,7 @@ class CheckpointFile(object):
         self.close()
 
     @PETSc.Log.EventDecorator("SaveMesh")
-    def save_mesh(self, mesh):
+    def save_mesh(self, mesh, save_labels=True):
         r"""Save a mesh.
 
         :arg mesh: the mesh to save.
@@ -594,7 +594,7 @@ class CheckpointFile(object):
                 self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", mesh._base_mesh.name)
         else:
             # -- Save mesh topology --
-            self._save_mesh_topology(tmesh)
+            self._save_mesh_topology(tmesh, save_labels=save_labels)
             # -- Save mesh --
             path = self._path_to_meshes(tmesh.name)
             if mesh.name not in self.h5pyfile.require_group(path):
@@ -611,7 +611,7 @@ class CheckpointFile(object):
                 self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
 
     @PETSc.Log.EventDecorator("SaveMeshTopology")
-    def _save_mesh_topology(self, tmesh):
+    def _save_mesh_topology(self, tmesh, save_labels=True):
         # -- Save DMPlex --
         topology_dm = tmesh.topology_dm
         tmesh_name = topology_dm.getName()
@@ -631,7 +631,8 @@ class CheckpointFile(object):
             with PETSc.Log.Event("DMPlexTopologyView"):
                 topology_dm.topologyView(viewer=self.viewer)
             with PETSc.Log.Event("DMPlexLabelsView"):
-                topology_dm.labelsView(viewer=self.viewer)
+                if save_labels:
+                    topology_dm.labelsView(viewer=self.viewer)
             self.viewer.popFormat()
 
     @PETSc.Log.EventDecorator("SaveFunctionSpace")
@@ -784,7 +785,7 @@ class CheckpointFile(object):
             self.viewer.popTimestepping()
 
     @PETSc.Log.EventDecorator("LoadMesh")
-    def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None):
+    def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None, load_labels=True):
         r"""Load a mesh.
 
         :arg name: the name of the mesh to load (default to :obj:`~.DEFAULT_MESH_NAME`).
@@ -805,7 +806,7 @@ class CheckpointFile(object):
         if path in self.h5pyfile:
             # -- Load mesh topology --
             base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
-            base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
+            base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters, load_labels=load_labels)
             variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
             if variable_layers:
                 cell = base_tmesh.ufl_cell()
@@ -849,13 +850,13 @@ class CheckpointFile(object):
             mesh._base_mesh = self.load_mesh(base_mesh_name)
         else:
             utils._init()
-            tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
+            tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters, load_labels=load_labels)
             mesh = make_mesh_from_mesh_topology(tmesh, name)
         self._mesh_cache[mesh_key] = mesh
         return mesh
 
     @PETSc.Log.EventDecorator("LoadMeshTopology")
-    def _load_mesh_topology(self, tmesh_name, reorder, distribution_parameters):
+    def _load_mesh_topology(self, tmesh_name, reorder, distribution_parameters, load_labels=True):
         """Load the :class:`~.MeshTopology`.
 
         :arg tmesh_name: The name of the :class:`~.MeshTopology` to load.
@@ -882,14 +883,16 @@ class CheckpointFile(object):
         self.viewer.pushFormat(format=format)
         with PETSc.Log.Event("DMPlexTopologyLoad"):
             sfXB = plex.topologyLoad(self.viewer)
-        with PETSc.Log.Event("DMPlexLabelsLoad"):
-            plex.labelsLoad(self.viewer)
+        if load_labels:
+            with PETSc.Log.Event("DMPlexLabelsLoad"):
+                plex.labelsLoad(self.viewer)
         self.viewer.popFormat()
         # These labels are distribution dependent.
         # We should be able to save/load labels selectively.
-        plex.removeLabel("pyop2_core")
-        plex.removeLabel("pyop2_owned")
-        plex.removeLabel("pyop2_ghost")
+        if load_labels:
+            plex.removeLabel("pyop2_core")
+            plex.removeLabel("pyop2_owned")
+            plex.removeLabel("pyop2_ghost")
         # -- Load coordinates
         with PETSc.Log.Event("DMPlexCoordinatesLoad"):
             plex.coordinatesLoad(self.viewer, sfXB)
