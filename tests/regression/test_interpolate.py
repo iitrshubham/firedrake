@@ -358,3 +358,18 @@ def test_interpolate_periodic_coords_max():
     # All nodes on the "seam" end up being 1, not 0.
     assert np.allclose(np.unique(continuous.dat.data_ro),
                        [0.25, 0.5, 0.75, 1])
+
+
+def test_quadrature():
+    from ufl.geometry import QuadratureWeight
+    mesh = UnitIntervalMesh(2)
+    Qse = FiniteElement("Quadrature", mesh.ufl_cell(), degree=1, quad_scheme="default")
+    Qs = FunctionSpace(mesh, Qse)
+    # For spatial coordinate we should get 1 point per cell
+    x, = SpatialCoordinate(mesh)
+    xq = interpolate(x, Qs)
+    assert np.allclose(xq.dat.data_ro, [0.25, 0.75])
+    # For quadrature weight we should equal weights for each cell
+    w = QuadratureWeight(mesh)
+    wq = interpolate(w, Qs)
+    assert np.allclose(wq.dat.data_ro, [1., 1.])
